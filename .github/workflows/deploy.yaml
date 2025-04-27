@@ -1,0 +1,62 @@
+name: CI/CD Pipeline for Next.js App
+
+# Trigger the workflow on push or pull request to the main branch
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest  # Use the latest Ubuntu runner for the workflow
+    
+    steps:
+    
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          ref: main  # Ensure we use the correct branch (main) from GitHub
+
+      # Step 2: Install dependencies
+      - name: Install dependencies
+        run: |
+          npm install  # Install the dependencies defined in your package.json file
+
+      # Step 3: Run build app
+      - name: Build Next.js app
+        run: |
+          npm run build  # Builds the Next.js app for production
+
+      # Step 5: Set up SSH with passphrase
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}  # Your SSH private key
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}  # Your SSH key's passphrase
+
+      # Step 6: Deploy to the remote server
+      - name: Deploy to remote server
+        env:
+          SERVER_USER: ${{ secrets.SERVER_USER }}  # Remote server username
+          SERVER_IP: ${{ secrets.SERVER_IP }}  # IP address of the server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} <<EOF
+            # Go to the project directory
+            cd /home/yugene/Eugene/NodeApps/next-self-hosting
+
+            # Pull the latest code from the GitHub repository
+            git pull origin main
+
+            # Install dependencies (if any changes)
+            npm install
+
+            # Build the app (in case it wasn't built before)
+            npm run build
+
+            # Restart the application using PM2 (if you use PM2 for process management)
+            pm2 restart nextjs
+          EOF
