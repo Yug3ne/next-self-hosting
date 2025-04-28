@@ -1,6 +1,5 @@
-name: CI/CD Pipeline for Next.js App
+name: CI/CD Pipeline for Next.js App (Improved)
 
-# Trigger the workflow on push or pull request to the main branch
 on:
   push:
     branches:
@@ -11,24 +10,22 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest # Use the latest Ubuntu runner for the workflow
+    runs-on: ubuntu-latest
 
     steps:
       # Step 1: Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: main # Ensure we use the correct branch (main) from GitHub
 
       # Step 2: Set up Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22" # Update Node.js version to 22
+          node-version: '22'
 
-      # Step 3: Cache node_modules to speed up npm install
-      - name: Cache node modules
-        uses: actions/cache@v4
+      # Step 3: Cache Node modules
+      - name: Cache node_modules
+        uses: actions/cache@v3
         with:
           path: ~/.npm
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
@@ -37,39 +34,44 @@ jobs:
 
       # Step 4: Install dependencies
       - name: Install dependencies
-        run: |
-          npm install  # Install the dependencies defined in your package.json file
+        run: npm install
 
-      # Step 5: Build Next.js app
+      # Step 5: Build the Next.js app
       - name: Build Next.js app
-        run: |
-          npm run build  # Builds the Next.js app for production
+        run: npm run build
 
-      # Step 6: Set up SSH with private key
+      # Step 6: Upload build artifacts
+      - name: Archive build artifacts
+        run: |
+          tar -czf build-artifacts.tar.gz .next public node_modules package.json package-lock.json prisma
+
+      # Step 7: Set up SSH Agent
       - name: Set up SSH
         uses: webfactory/ssh-agent@v0.5.3
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} # Your SSH private rsa key
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # Step 7: Deploy to remote server
-      - name: Deploy to remote server
-        env:
-          SERVER_USER: ${{ secrets.SERVER_USER }} # Remote server username
-          SERVER_IP: ${{ secrets.SERVER_IP }} # IP address of the server
+      # Step 8: Copy artifacts to the server
+      - name: Copy build to server
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} <<EOF
-            # Go to the project directory
+          scp -o StrictHostKeyChecking=no build-artifacts.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:/home/${{ secrets.SERVER_USER }}/nextjs-deploy/build-artifacts.tar.gz
+
+      # Step 9: Deploy on server
+      - name: Deploy on remote server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} << 'EOF'
+            # Go to deployment directory
             cd /home/yugene/Eugene/NodeApps/next-self-hosting
 
-            # Pull the latest code from GitHub
-            git pull origin main
+            # Remove old files (optional safety)
+            rm -rf .next node_modules public prisma
 
-            # Install dependencies (in case there are changes)
-            npm install
+            # Extract new build
+            tar -xzf build-artifacts.tar.gz
 
-            # Build the app again on server (optional but good for server-specific builds)
-            npm run build
+            # Remove the archive
+            rm build-artifacts.tar.gz
 
-            # Restart the application using PM2
-            pm2 restart nextjs
+            # Restart PM2 process
+            pm2 restart nextjs || pm2 start "node_modules/next/dist/bin/next" --name nextjs -- start -p 3000
           EOF
