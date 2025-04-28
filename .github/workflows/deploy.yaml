@@ -11,52 +11,65 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest  # Use the latest Ubuntu runner for the workflow
-    
+    runs-on: ubuntu-latest # Use the latest Ubuntu runner for the workflow
+
     steps:
-    
       # Step 1: Checkout the repository
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
-          ref: main  # Ensure we use the correct branch (main) from GitHub
+          ref: main # Ensure we use the correct branch (main) from GitHub
 
-      # Step 2: Install dependencies
+      # Step 2: Set up Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22" # Update Node.js version to 22
+
+      # Step 3: Cache node_modules to speed up npm install
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      # Step 4: Install dependencies
       - name: Install dependencies
         run: |
           npm install  # Install the dependencies defined in your package.json file
 
-      # Step 3: Run build app
+      # Step 5: Build Next.js app
       - name: Build Next.js app
         run: |
           npm run build  # Builds the Next.js app for production
 
-      # Step 5: Set up SSH with passphrase
+      # Step 6: Set up SSH with private key
       - name: Set up SSH
         uses: webfactory/ssh-agent@v0.5.3
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}  # Your SSH private rsa key
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} # Your SSH private rsa key
 
-
-      # Step 6: Deploy to the remote server
+      # Step 7: Deploy to remote server
       - name: Deploy to remote server
         env:
-          SERVER_USER: ${{ secrets.SERVER_USER }}  # Remote server username
-          SERVER_IP: ${{ secrets.SERVER_IP }}  # IP address of the server
+          SERVER_USER: ${{ secrets.SERVER_USER }} # Remote server username
+          SERVER_IP: ${{ secrets.SERVER_IP }} # IP address of the server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} <<EOF
             # Go to the project directory
             cd /home/yugene/Eugene/NodeApps/next-self-hosting
 
-            # Pull the latest code from the GitHub repository
+            # Pull the latest code from GitHub
             git pull origin main
 
-            # Install dependencies (if any changes)
+            # Install dependencies (in case there are changes)
             npm install
 
-            # Build the app (in case it wasn't built before)
+            # Build the app again on server (optional but good for server-specific builds)
             npm run build
 
-            # Restart the application using PM2 (if you use PM2 for process management)
+            # Restart the application using PM2
             pm2 restart nextjs
           EOF
